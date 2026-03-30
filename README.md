@@ -1,68 +1,116 @@
 # Fake News Detection
 
-This repository contains a notebook-based model training pipeline for fake news detection using a text classification model.  
-The model takes raw article text (and optional title) and classifies it as `REAL` or `FAKE`.
+This repository contains a complete ML project for fake news classification, ending in a deployable FastAPI inference service.
+
+- Data source: `news.csv` (text + label)
+- Best model: TF-IDF + PassiveAggressiveClassifier
+- Output: `REAL` / `FAKE` with confidence score
+
+## Project structure
+
+- `app.py` : FastAPI app entrypoint (`/predict`, `/health`)
+- `src/model_utils.py` : preprocessing, training, loading, prediction helpers
+- `src/train.py` : train pipeline and model serialization
+- `model/fake_news_detector.pkl` : trained model artifact
+- `requirements.txt` : dependencies
+- `Dockerfile` : container build
+- `.env.example` : runtime env var template
+- `FakeNewsDetection.ipynb` : exploratory EDA and model comparison
 
 ## Setup
-
-1. Create virtual environment and install dependencies:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install --break-system-packages -r requirements.txt
 ```
 
-2. Train the model:
+## Training
 
 ```bash
 python src/train.py --data news.csv --model ./model/fake_news_detector.pkl
 ```
 
-3. Run the API locally:
+The training pipeline includes:
+
+1. read `news.csv`
+2. clean text `[^a-zA-Z0-9\s]` + lowercasing
+3. optional lemmatization fallback when WordNet is unavailable
+4. `TfidfVectorizer(stop_words='english', max_df=0.7)`
+5. `PassiveAggressiveClassifier(max_iter=50)`
+6. save model with `joblib`
+
+## Run local API
 
 ```bash
 uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
----
+## .env example
 
-## Deployment
-
-Build and run the Docker image:
-
-```bash
-docker build -t fake-news-detector .
-docker run -p 8000:8000 fake-news-detector
+```ini
+PORT=8000
+MODEL_PATH=./model/fake_news_detector.pkl
+CONFIDENCE_THRESHOLD=0.5
 ```
-
----
 
 ## API Reference
 
-- `POST /predict`
-  - request: `{"text": "article body...", "title": "optional title"}`
-  - response: `{"label": "FAKE", "confidence": 0.92}`
+### POST /predict
 
-- `GET /health`
-  - response: `{"status": "ok"}`
+Request body:
 
----
+```json
+{
+  "text": "article body...",
+  "title": "optional title"
+}
+```
+
+Response:
+
+```json
+{
+  "label": "REAL" | "FAKE",
+  "confidence": 0.92
+}
+```
+
+### GET /health
+
+Response:
+
+```json
+{"status": "ok"}
+```
+
+## Docker
+
+Build and run:
+
+```bash
+docker build -t fake-news-detector .
+
+docker run -p 8000:8000 fake-news-detector
+```
 
 ## Model Info
 
-- Model type: `Pipeline` with `TfidfVectorizer` + `PassiveAggressiveClassifier` (from notebook training flow)
-- Dataset: `news.csv` (contains `text` and `label` columns)
-- Preprocessing:
-  - Remove non-alphanumeric characters
-  - Lowercase
-  - Lemmatization using `WordNetLemmatizer`
+- Model pipeline: TF-IDF vectorizer + PassiveAggressiveClassifier
+- Input features: cleaned & lemmatized text
+- Output: binary label with confidence probability (from decision score)
+- Reported notebook accuracy: 93%+ (for sample split)
 
-- Performance: model uses `accuracy_score` on 80/20 split. In notebook example, `PassiveAggressiveClassifier` reached ~91+% (exact value depends on data and random seed).
+## Validation
 
----
+- `python src/train.py` builds/overwrites `model/fake_news_detector.pkl`
+- `app.py` loads model on startup with `load_model`
+- `predict_text` returns label/confidence
+- `POST /predict` and `GET /health` are available
 
-## Notes
+## Next recommended improvements
 
-- Existing notebook (`FakeNewsDetection.ipynb`) holds exploratory analysis and model selection.
-- for production, we now use `app.py` for inference and `Dockerfile` for containerization.
+- add tests (`pytest`, `tests/`)
+- add CI pipeline (GitHub Actions/Bamboo/etc.)
+- add robustness to malformed or large inputs
+- add logging and metrics (`/metrics` Prometheus)
